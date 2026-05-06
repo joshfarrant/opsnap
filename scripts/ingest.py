@@ -282,6 +282,48 @@ def normalise_council_area(raw: str | None) -> str | None:
     return aliases.get(area, area)
 
 
+# Vehicle make normalisation — maps common variations to canonical names
+VEHICLE_MAKE_MAP = {
+    "mercedes": "Mercedes-Benz",
+    "mercedes-benz": "Mercedes-Benz",
+    "mercedes benz": "Mercedes-Benz",
+    "merc": "Mercedes-Benz",
+    "vw": "Volkswagen",
+    "volkswagon": "Volkswagen",
+    "volkswagen": "Volkswagen",
+    "bmw": "BMW",
+    "land rover": "Land Rover",
+    "landrover": "Land Rover",
+    "range rover": "Land Rover",
+    "alfa romeo": "Alfa Romeo",
+    "rolls royce": "Rolls-Royce",
+    "rolls-royce": "Rolls-Royce",
+    "aston martin": "Aston Martin",
+    "mini": "Mini",
+    "mini cooper": "Mini",
+}
+
+
+def normalise_vehicle_make(raw: str | None) -> str | None:
+    """Standardise vehicle make names."""
+    if not raw:
+        return None
+
+    make = raw.strip()
+    if not make:
+        return None
+
+    canonical = VEHICLE_MAKE_MAP.get(make.lower())
+    if canonical:
+        return canonical
+
+    # Title-case if all lower or all upper
+    if make == make.lower() or make == make.upper():
+        make = make.title()
+
+    return make
+
+
 def create_database(db_path: Path, records: list[dict]):
     """Create SQLite database and write all records."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -392,6 +434,7 @@ def ingest():
             row["council_area_raw"] = row.get("council_area")
             row["council_area"] = normalise_council_area(row.get("council_area"))
             row["disposal"] = normalise_disposal(row.get("disposal"))
+            row["vehicle_make"] = normalise_vehicle_make(row.get("vehicle_make"))
 
         all_records.extend(rows)
         print(f"  {filename}: {len(rows)} rows")

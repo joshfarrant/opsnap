@@ -79,14 +79,42 @@ def build_query(location: str, council_area: str | None) -> str:
     """Build a geocoding query string from location and council area."""
     loc = location.strip()
 
-    # Skip vague motorway references without junctions
+    # Skip out-of-force and unknown
+    if council_area and "out of force" in council_area.lower():
+        return ""
+    if loc.lower() in ("unknown", "n/a", "none", ""):
+        return ""
+
+    # Skip vague motorway/A-road references without junctions
     if re.match(r"^[AM]\d+$", loc):
         return ""
 
-    # For motorway junctions, build a specific query
-    m = re.match(r"^(M\d+)\s+(?:NB|SB|EB|WB)?\s*(?:J|Jct|Junction)\s*(\d+)", loc, re.IGNORECASE)
+    # Skip vague directional motorway refs like "M6 Southbound"
+    if re.match(r"^[AM]\d+\s+(Northbound|Southbound|Eastbound|Westbound)$", loc, re.IGNORECASE):
+        return ""
+
+    # Motorway junctions — various formats:
+    #   "M6 NB J6", "M6 SB J 6", "M42 J5", "M5 Jct 23", "M6 Junction 6"
+    #   "M42 near M40 junc", "M6 to M5 junction"
+    m = re.match(
+        r"^(M\d+)\s*(?:NB|SB|EB|WB)?\s*(?:J|Jct|Junction|junc)\.?\s*(\d+)",
+        loc,
+        re.IGNORECASE,
+    )
     if m:
         return f"{m.group(1)} Junction {m.group(2)}, England"
+
+    # Motorway-to-motorway junctions: "M6 to M5 junction"
+    m = re.match(r"^(M\d+)\s+(?:to|near)\s+(M\d+)", loc, re.IGNORECASE)
+    if m:
+        return f"{m.group(1)} {m.group(2)} junction, England"
+
+    # Intersection references: "Chester Road at Kingsbury Road" -> just first road
+    for separator in [" at ", " / ", " junction with ", " junc with ", " near "]:
+        if separator in loc.lower():
+            idx = loc.lower().index(separator)
+            loc = loc[:idx].strip()
+            break
 
     # Get the search area suffix
     area_suffix = COUNCIL_SEARCH_AREAS.get(council_area, "West Midlands, England")
