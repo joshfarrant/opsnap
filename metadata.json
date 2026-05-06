@@ -1,6 +1,10 @@
 {
-  "title": "Op Snap — West Midlands",
-  "description": "West Midlands Police Operation Snap driving offence data (Jan 2025 – Feb 2026)",
+  "title": "Op Snap — West Midlands Driving Offences",
+  "description_html": "<p>Public data from <a href='https://www.westmidlands.police.uk/police-forces/west-midlands-police/areas/campaigns/campaigns/operation-snap/'>West Midlands Police Operation Snap</a> — where members of the public submit dashcam and photo evidence of driving offences.</p><p>25,600 submissions from January 2025 to February 2026. 79% geocoded onto the map. <strong>71% of submissions result in action</strong> (driver education, warning letter, fine, or court).</p><p>Source code and methodology: <a href='https://github.com/joshfarrant/opsnap'>github.com/joshfarrant/opsnap</a></p>",
+  "license": "ODbL",
+  "license_url": "https://openstreetmap.org/copyright",
+  "source": "West Midlands Police",
+  "source_url": "https://www.westmidlands.police.uk/police-forces/west-midlands-police/areas/campaigns/campaigns/operation-snap/",
   "plugins": {
     "datasette-cluster-map": {
       "tile_layer": "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
@@ -12,52 +16,90 @@
     }
   },
   "databases": {
-        "opsnap": {
+    "opsnap": {
+      "description_html": "Every Operation Snap submission to West Midlands Police, January 2025 — February 2026.",
+      "tables": {
+        "reports": {
+          "description_html": "Each row is one public submission to Operation Snap. Includes the offence, vehicle details, location, and outcome.<br><br><strong>Disposal outcomes:</strong> Education (driver awareness course), Warning Letter, Fixed Penalty (fine), Court (prosecution), NFA (no further action).",
+          "sort_desc": "month",
+          "facets": ["disposal", "council_area", "offence", "vehicle_make", "reporter_transport_mode", "month"],
+          "columns": {
+            "id": {"label": "ID"},
+            "source_file": {"label": "Source PDF"},
+            "source_page": {"label": "Page"},
+            "source_row": {"label": "Row"},
+            "month": {"label": "Month"},
+            "reporter_transport_mode": {"label": "Reporter"},
+            "vehicle_make": {"label": "Make"},
+            "vehicle_model": {"label": "Model"},
+            "vehicle_colour": {"label": "Colour"},
+            "offence": {"label": "Offence"},
+            "second_offence": {"label": "Second offence"},
+            "offence_location_raw": {"label": "Location (raw)"},
+            "offence_location": {"label": "Location"},
+            "council_area_raw": {"label": "Council (raw)"},
+            "council_area": {"label": "Council area"},
+            "disposal": {"label": "Outcome"},
+            "nfa_rationale": {"label": "NFA reason"},
+            "witness_contacted": {"label": "Witness contacted"},
+            "latitude": {"label": "Lat"},
+            "longitude": {"label": "Lng"}
+          },
+          "hidden_columns": ["source_file", "source_page", "source_row", "offence_location_raw", "council_area_raw", "witness_contacted", "second_offence", "nfa_rationale"]
+        },
+        "vehicle_registrations": {
+          "description_html": "UK-wide licensed vehicle counts by make (DVLA data via <a href='https://howmanyleft.co.uk'>howmanyleft.co.uk</a>, Q3 2025). Used to normalise offence counts per 100,000 registered vehicles.",
+          "hidden_columns": ["source"]
+        },
+        "geocode_cache": {
+          "hidden": true
+        }
+      },
       "queries": {
-        "top-offence-locations": {
-          "title": "Top offence locations",
-          "description": "Streets with the most reported offences, with map",
-          "sql": "select offence_location, council_area, count(*) as total_reports, sum(case when disposal in ('Fixed Penalty', 'Court') then 1 else 0 end) as fines_or_court, sum(case when disposal = 'Education' then 1 else 0 end) as education, sum(case when disposal = 'Warning Letter' then 1 else 0 end) as warning_letters, sum(case when disposal = 'NFA' then 1 else 0 end) as nfa, round(100.0 * sum(case when disposal != 'NFA' then 1 else 0 end) / count(*), 1) as action_rate_pct from reports where offence_location is not null group by offence_location, council_area order by total_reports desc limit 50"
-        },
-        "disposal-breakdown-by-month": {
-          "title": "Disposal breakdown by month",
-          "description": "How outcomes have changed over time",
-          "sql": "select month, count(*) as total, sum(case when disposal = 'Education' then 1 else 0 end) as education, sum(case when disposal = 'Warning Letter' then 1 else 0 end) as warning_letter, sum(case when disposal = 'Fixed Penalty' then 1 else 0 end) as fixed_penalty, sum(case when disposal = 'Court' then 1 else 0 end) as court, sum(case when disposal = 'NFA' then 1 else 0 end) as nfa, round(100.0 * sum(case when disposal not in ('NFA', 'Duplicate Submission') then 1 else 0 end) / count(*), 1) as action_rate_pct from reports group by month order by month"
-        },
-        "vehicle-makes": {
-          "title": "Top vehicle makes",
-          "description": "Which vehicle makes appear most in offence reports",
-           "sql": "select vehicle_make, count(*) as total_reports, sum(case when disposal = 'Fixed Penalty' then 1 else 0 end) as fines, sum(case when disposal = 'Court' then 1 else 0 end) as court, sum(case when disposal = 'NFA' then 1 else 0 end) as nfa, round(100.0 * sum(case when disposal not in ('NFA', 'Duplicate Submission') then 1 else 0 end) / count(*), 1) as action_rate_pct from reports where vehicle_make is not null group by vehicle_make order by total_reports desc limit 30"
-        },
-        "vehicle-makes-per-100k": {
-          "title": "Vehicle makes — offences per 100k registered",
-          "description": "Which makes are disproportionately reported, normalised against DVLA registration data",
-          "sql": "select r.vehicle_make, count(*) as offences, vr.licensed_vehicles, round(100000.0 * count(*) / vr.licensed_vehicles, 1) as offences_per_100k, round(100.0 * sum(case when r.disposal not in ('NFA', 'Duplicate Submission') then 1 else 0 end) / count(*), 1) as action_rate_pct from reports r join vehicle_registrations vr on r.vehicle_make = vr.make where r.vehicle_make is not null group by r.vehicle_make order by offences_per_100k desc"
+        "all-offences-map": {
+          "title": "🗺️ All offences on a map",
+          "description_html": "Every geocoded offence plotted on a clustered map. Click a marker to see details. <strong>Zoom in</strong> to see individual offences.",
+          "sql": "select offence_location as Location, council_area as [Council area], offence as Offence, disposal as Outcome, vehicle_make as Make, vehicle_model as Model, vehicle_colour as Colour, reporter_transport_mode as [Reported by], month as Month, latitude, longitude from reports where latitude is not null limit 5000"
         },
         "pavement-parking-hotspots": {
-          "title": "Pavement parking hotspots",
-          "description": "Locations with the most pavement parking / obstruction offences, with map",
-          "sql": "select r.offence_location, r.council_area, count(*) as total_reports, r.latitude, r.longitude from reports r where (r.offence like '%obstruction%' or r.offence like '%dangerous position%') and r.offence_location is not null group by r.offence_location, r.council_area order by total_reports desc limit 100"
+          "title": "🚶 Pavement parking hotspots",
+          "description_html": "Locations with the most pavement parking and obstruction offences. These are reports where a vehicle was left in a dangerous position or caused unnecessary obstruction on a footpath.",
+          "sql": "select r.offence_location as Location, r.council_area as [Council area], count(*) as [Total reports], round(100.0 * sum(case when r.disposal not in ('NFA', 'Duplicate Submission') then 1 else 0 end) / count(*), 0) as [Action rate %], r.latitude, r.longitude from reports r where (r.offence like '%obstruction%' or r.offence like '%dangerous position%') and r.offence_location is not null group by r.offence_location, r.council_area order by [Total reports] desc limit 100"
+        },
+        "top-offence-locations": {
+          "title": "📍 Top reported locations",
+          "description_html": "The 50 streets with the most Operation Snap submissions. Washwood Heath Road in Birmingham leads with over 900 reports in 14 months.",
+          "sql": "select offence_location as Location, council_area as [Council area], count(*) as [Total reports], sum(case when disposal in ('Fixed Penalty', 'Court') then 1 else 0 end) as [Fines/court], sum(case when disposal = 'Education' then 1 else 0 end) as Education, sum(case when disposal = 'Warning Letter' then 1 else 0 end) as [Warning letters], sum(case when disposal = 'NFA' then 1 else 0 end) as NFA, round(100.0 * sum(case when disposal != 'NFA' then 1 else 0 end) / count(*), 0) as [Action rate %] from reports where offence_location is not null group by offence_location, council_area order by [Total reports] desc limit 50"
+        },
+        "vehicle-makes-per-100k": {
+          "title": "🚗 Which car makes offend most? (normalised)",
+          "description_html": "Offences per 100,000 registered vehicles of each make. Raw offence counts are misleading because Ford has 5.2 million vehicles on UK roads while Porsche has 238,000. This query normalises against <a href='https://howmanyleft.co.uk'>DVLA registration data</a> to show which makes are <em>disproportionately</em> reported.",
+          "sql": "select r.vehicle_make as Make, count(*) as Offences, printf('%,d', vr.licensed_vehicles) as [UK registered vehicles], round(100000.0 * count(*) / vr.licensed_vehicles, 1) as [Offences per 100k], round(100.0 * sum(case when r.disposal not in ('NFA', 'Duplicate Submission') then 1 else 0 end) / count(*), 0) as [Action rate %] from reports r join vehicle_registrations vr on r.vehicle_make = vr.make where r.vehicle_make is not null group by r.vehicle_make order by [Offences per 100k] desc"
+        },
+        "vehicle-makes": {
+          "title": "🚗 Top vehicle makes (raw count)",
+          "description_html": "Which vehicle makes appear most in offence reports by raw count. See <em>Which car makes offend most? (normalised)</em> for a fairer comparison that accounts for how many of each make are on the road.",
+          "sql": "select vehicle_make as Make, count(*) as [Total reports], sum(case when disposal = 'Fixed Penalty' then 1 else 0 end) as Fines, sum(case when disposal = 'Court' then 1 else 0 end) as Court, sum(case when disposal = 'NFA' then 1 else 0 end) as NFA, round(100.0 * sum(case when disposal not in ('NFA', 'Duplicate Submission') then 1 else 0 end) / count(*), 0) as [Action rate %] from reports where vehicle_make is not null group by vehicle_make order by [Total reports] desc limit 30"
+        },
+        "disposal-breakdown-by-month": {
+          "title": "📊 Monthly trends",
+          "description_html": "How submission volumes and outcomes have changed month by month. Are more people reporting? Is the action rate changing?",
+          "sql": "select month as Month, count(*) as Total, sum(case when disposal = 'Education' then 1 else 0 end) as Education, sum(case when disposal = 'Warning Letter' then 1 else 0 end) as [Warning letter], sum(case when disposal = 'Fixed Penalty' then 1 else 0 end) as [Fixed penalty], sum(case when disposal = 'Court' then 1 else 0 end) as Court, sum(case when disposal = 'NFA' then 1 else 0 end) as NFA, round(100.0 * sum(case when disposal not in ('NFA', 'Duplicate Submission') then 1 else 0 end) / count(*), 0) as [Action rate %] from reports group by month order by month"
         },
         "offence-types": {
-          "title": "Offence type breakdown",
-          "description": "All offence types ranked by frequency",
-          "sql": "select offence, count(*) as total_reports, sum(case when disposal = 'NFA' then 1 else 0 end) as nfa, round(100.0 * sum(case when disposal not in ('NFA', 'Duplicate Submission') then 1 else 0 end) / count(*), 1) as action_rate_pct from reports where offence is not null group by offence order by total_reports desc"
-        },
-        "reporter-vs-offence": {
-          "title": "Reporter type vs offence",
-          "description": "What pedestrians, cyclists, and drivers report differently",
-          "sql": "select reporter_transport_mode, offence, count(*) as total from reports where reporter_transport_mode is not null group by reporter_transport_mode, offence order by reporter_transport_mode, total desc"
+          "title": "⚠️ Offence types",
+          "description_html": "All offence categories ranked by frequency. 'Driving without Due Care and Attention' is the most common, followed by pavement obstruction and red light offences.",
+          "sql": "select offence as Offence, count(*) as [Total reports], round(100.0 * sum(case when disposal not in ('NFA', 'Duplicate Submission') then 1 else 0 end) / count(*), 0) as [Action rate %] from reports where offence is not null group by offence order by [Total reports] desc"
         },
         "council-area-comparison": {
-          "title": "Council area comparison",
-          "description": "Submissions and outcomes by council area",
-          "sql": "select council_area, count(*) as total_reports, sum(case when disposal = 'Education' then 1 else 0 end) as education, sum(case when disposal = 'Warning Letter' then 1 else 0 end) as warning_letter, sum(case when disposal = 'Fixed Penalty' then 1 else 0 end) as fixed_penalty, sum(case when disposal = 'Court' then 1 else 0 end) as court, sum(case when disposal = 'NFA' then 1 else 0 end) as nfa, round(100.0 * sum(case when disposal not in ('NFA', 'Duplicate Submission') then 1 else 0 end) / count(*), 1) as action_rate_pct from reports where council_area is not null and council_area != 'Out of Force Area' group by council_area order by total_reports desc"
+          "title": "🏛️ Council area comparison",
+          "description_html": "How do different council areas compare for submission volumes and action rates? Birmingham dominates by volume, but smaller areas may have different enforcement patterns.",
+          "sql": "select council_area as [Council area], count(*) as [Total reports], sum(case when disposal = 'Education' then 1 else 0 end) as Education, sum(case when disposal = 'Warning Letter' then 1 else 0 end) as [Warning letter], sum(case when disposal = 'Fixed Penalty' then 1 else 0 end) as [Fixed penalty], sum(case when disposal = 'Court' then 1 else 0 end) as Court, sum(case when disposal = 'NFA' then 1 else 0 end) as NFA, round(100.0 * sum(case when disposal not in ('NFA', 'Duplicate Submission') then 1 else 0 end) / count(*), 0) as [Action rate %] from reports where council_area is not null and council_area != 'Out of Force Area' group by council_area order by [Total reports] desc"
         },
-        "all-offences-map": {
-          "title": "All offences (map)",
-          "description": "Every geocoded offence on a clustered map",
-          "sql": "select offence_location, council_area, offence, disposal, vehicle_make, vehicle_model, vehicle_colour, reporter_transport_mode, month, latitude, longitude from reports where latitude is not null limit 5000"
+        "reporter-vs-offence": {
+          "title": "👁️ What different reporters see",
+          "description_html": "Pedestrians, cyclists, and drivers notice different offences. Pedestrians report more pavement obstruction; cyclists report more close passes and mobile phone use.",
+          "sql": "select reporter_transport_mode as [Reporter type], offence as Offence, count(*) as Total from reports where reporter_transport_mode is not null group by reporter_transport_mode, offence order by reporter_transport_mode, Total desc"
         }
       }
     }
