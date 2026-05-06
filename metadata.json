@@ -5,6 +5,9 @@
   "license_url": "https://openstreetmap.org/copyright",
   "source": "West Midlands Police",
   "source_url": "https://www.westmidlands.police.uk/police-forces/west-midlands-police/areas/campaigns/campaigns/operation-snap/",
+  "extra_js_urls": [
+    {"url": "https://analytics.farrant.me/script.js", "extra_attrs": {"defer": true, "data-website-id": "eb4a07a3-23fd-4eea-bbc9-ad9667aca921"}}
+  ],
   "plugins": {
     "datasette-cluster-map": {
       "tile_layer": "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
