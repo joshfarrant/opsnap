@@ -4,17 +4,11 @@ Ingest Operation Snap PDFs into SQLite.
 
 Reads all PDFs from data/pdfs/, parses them into structured records,
 and writes to data/opsnap.db. Idempotent — drops and rebuilds on each run.
-
-Two PDF formats are handled:
-  - Table-based (2025+): pdfplumber extract_tables() works directly
-  - Text-based (2024): uses word positions with auto-detected column boundaries
 """
 
-import os
 import re
 import sqlite3
 import sys
-from collections import defaultdict
 from pathlib import Path
 
 import pdfplumber
@@ -73,21 +67,6 @@ CANONICAL_COLUMNS = [
     "nfa_rationale",
     "witness_contacted",
 ]
-
-# Known reporter transport modes (for text-based parsing validation)
-TRANSPORT_MODES = {
-    "car",
-    "pedestrian",
-    "pedal bike",
-    "van",
-    "other",
-    "motorcycle",
-    "bus",
-    "hgv",
-    "taxi",
-    "e-scooter",
-    "mobility scooter",
-}
 
 
 def normalise_header(raw: str) -> str | None:
@@ -221,110 +200,6 @@ def try_table_extraction(pdf: pdfplumber.PDF) -> list[dict] | None:
     return rows
 
 
-def extract_with_word_positions(pdf: pdfplumber.PDF) -> list[dict]:
-    """
-    Extract data from text-based PDFs using word positions.
-    Auto-detects column boundaries from header words on each page.
-    """
-    # Header keywords and their canonical column mappings
-    # Order matters — more specific matches first
-    header_keywords = [
-        ("TRANSPORT MODE", "reporter_transport_mode"),
-        ("REPORTER", "reporter_transport_mode"),
-        ("VEHICLE MODEL", "vehicle_model"),
-        ("VEHICLE COLOUR", "vehicle_colour"),
-        ("COLOUR", "vehicle_colour"),
-        ("OFFENDER VEHICLE", "vehicle_make"),
-        ("MAKE", "vehicle_make"),
-        ("Offence", "offence"),
-        ("OFF LOCATION", "offence_location"),
-        ("COUNCIL AREA", "council_area"),
-        ("DISPOSAL", "disposal"),
-        ("RATIONALE", "nfa_rationale"),
-        ("Witness", "witness_contacted"),
-    ]
-
-    all_rows = []
-
-    for page_num, page in enumerate(pdf.pages):
-        words = page.extract_words(keep_blank_chars=True, x_tolerance=3, y_tolerance=3)
-        if not words:
-            continue
-
-        # Find header region — search up to 200px (some PDFs have a title row first)
-        header_words = [w for w in words if w["top"] < 200]
-        if not header_words:
-            continue
-
-        # Build column boundaries from header positions
-        col_starts = {}
-        for w in sorted(header_words, key=lambda x: x["x0"]):
-            text = w["text"].strip()
-            for keyword, canonical in header_keywords:
-                if keyword in text and canonical not in col_starts:
-                    col_starts[canonical] = w["x0"]
-                    break
-
-        if len(col_starts) < 5:
-            continue
-
-        # Sort columns by x-position and build boundaries
-        sorted_cols = sorted(col_starts.items(), key=lambda x: x[1])
-        boundaries = []
-        for i, (col_name, x_start) in enumerate(sorted_cols):
-            # First column starts at 0 (data often starts left of header text)
-            col_left = 0 if i == 0 else x_start - 5
-            col_right = sorted_cols[i + 1][1] - 5 if i + 1 < len(sorted_cols) else page.width
-            boundaries.append((col_name, col_left, col_right))
-
-        # Find data start — below the lowest header word
-        header_bottom = max(w["bottom"] for w in header_words if w["top"] < 200) + 2
-
-        # Group data words by y position (row)
-        data_words = [w for w in words if w["top"] > header_bottom]
-        if not data_words:
-            continue
-
-        rows_by_y = defaultdict(list)
-        for w in data_words:
-            y_key = round(w["top"])
-            rows_by_y[y_key].append(w)
-
-        # Merge nearby y-keys (within 3px)
-        merged_rows = []
-        sorted_ys = sorted(rows_by_y.keys())
-        current_group = []
-        current_y = None
-        for y in sorted_ys:
-            if current_y is None or abs(y - current_y) <= 3:
-                current_group.extend(rows_by_y[y])
-                current_y = y if current_y is None else current_y
-            else:
-                merged_rows.append(current_group)
-                current_group = list(rows_by_y[y])
-                current_y = y
-        if current_group:
-            merged_rows.append(current_group)
-
-        for row_idx, row_words in enumerate(merged_rows):
-            record = {col: None for col in CANONICAL_COLUMNS}
-            for col_name, x_start, x_end in boundaries:
-                col_words = [w for w in row_words if w["x0"] >= x_start and w["x0"] < x_end]
-                col_words.sort(key=lambda w: w["x0"])
-                text = " ".join(w["text"].strip() for w in col_words).strip()
-                if text:
-                    record[col_name] = text
-
-            # Validate: must have a recognised transport mode
-            mode = (record.get("reporter_transport_mode") or "").lower()
-            if mode not in TRANSPORT_MODES:
-                continue
-
-            all_rows.append(record)
-
-    return all_rows
-
-
 def normalise_location(raw: str | None) -> str | None:
     """Basic normalisation of location strings."""
     if not raw:
@@ -451,13 +326,11 @@ def ingest():
 
         pdf = pdfplumber.open(pdf_path)
 
-        # Try table extraction first, fall back to word positions
         rows = try_table_extraction(pdf)
-        method = "table"
-
         if rows is None:
-            rows = extract_with_word_positions(pdf)
-            method = "words"
+            print(f"  {filename}: SKIPPED (unsupported format)")
+            pdf.close()
+            continue
 
         # Add metadata and normalise
         for i, row in enumerate(rows):
@@ -472,7 +345,7 @@ def ingest():
             row["disposal"] = normalise_disposal(row.get("disposal"))
 
         all_records.extend(rows)
-        print(f"  {filename}: {len(rows)} rows ({method})")
+        print(f"  {filename}: {len(rows)} rows")
 
         pdf.close()
 
