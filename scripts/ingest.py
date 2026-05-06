@@ -210,8 +210,14 @@ def normalise_location(raw: str | None) -> str | None:
     loc = re.sub(r"\.\.", "", loc)
     loc = loc.strip()
 
-    if not loc or loc.lower() == "unknown":
+    if not loc or loc.lower() in ("unknown", "not known", "n/a", "none"):
         return None
+
+    # Fix missing spaces before capital letters: "Bell GreenRoad" -> "Bell Green Road"
+    loc = re.sub(r"([a-z])([A-Z])", r"\1 \2", loc)
+
+    # Fix comma-space issues: "Birm,ingham" -> "Birmingham"
+    loc = re.sub(r",(?!\s)", ", ", loc)
 
     # Expand common abbreviations
     loc = re.sub(r"\bRd\b", "Road", loc)
@@ -221,15 +227,19 @@ def normalise_location(raw: str | None) -> str | None:
     loc = re.sub(r"\bDr\b", "Drive", loc)
     loc = re.sub(r"\bBlvd\b", "Boulevard", loc)
     loc = re.sub(r"\bCres\b", "Crescent", loc)
+    loc = re.sub(r"\bJn\b", "Junction", loc)
+    loc = re.sub(r"\bJct\b", "Junction", loc)
+    loc = re.sub(r"\bS/B\b", "Southbound", loc, flags=re.IGNORECASE)
+    loc = re.sub(r"\bN/B\b", "Northbound", loc, flags=re.IGNORECASE)
     loc = re.sub(r"\bNB\b", "Northbound", loc)
     loc = re.sub(r"\bSB\b", "Southbound", loc)
 
     # Normalise whitespace
     loc = re.sub(r"\s+", " ", loc).strip()
 
-    # Strip leading A-road prefixes when followed by a road name
-    # e.g. "A38 Bristol Road" -> "Bristol Road" (the name is more geocodable)
-    loc = re.sub(r"^A\d+\s+(?=[A-Z][a-z])", "", loc)
+    # Strip leading A-road and B-road prefixes when followed by a road name
+    # e.g. "A38 Bristol Road" -> "Bristol Road", "B4155 Lichfield Road" -> "Lichfield Road"
+    loc = re.sub(r"^[AB]\d+\s+(?=[A-Z][a-z])", "", loc)
 
     # Title-case if all lower or all upper
     if loc == loc.lower() or loc == loc.upper():
@@ -246,6 +256,7 @@ def normalise_location(raw: str | None) -> str | None:
         "Tetenhall High Street": "Tettenhall High Street",
         "Hill Villiage Road": "Hill Village Road",
         "Foles Hill Road": "Foleshill Road",
+        "Fosehill Road": "Foleshill Road",
         "Sherbourne Street": "Sherborne Street",
         "Alceseter Road": "Alcester Road",
         "Ancester Road": "Alcester Road",
@@ -260,6 +271,12 @@ def normalise_location(raw: str | None) -> str | None:
         "Alridge Road": "Aldridge Road",
         "Abey Road": "Abbey Road",
         "Hight Street": "High Street",
+        "Lichefield Road": "Lichfield Road",
+        "Handworth": "Handsworth",
+        "High Street Kingsheath": "High Street, Kings Heath",
+        "Redcap Heath Road": "Red Cap Heath Road",
+        "Stivichall Interchange": "Stivichall, Coventry",
+        "Perry Barr Flyover": "Perry Barr, Birmingham",
     }
     loc = corrections.get(loc, loc)
 
@@ -276,6 +293,7 @@ def normalise_council_area(raw: str | None) -> str | None:
     aliases = {
         "Sutton Coldfield": "Sutton Coldfield",
         "Out Of Force Area": "Out of Force Area",
+        "Out Of Force Are": "Out of Force Area",
         "Out Of Force": "Out of Force Area",
         "Metropolitan Borough Of Walsall": "Walsall",
     }

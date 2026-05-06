@@ -79,10 +79,10 @@ def build_query(location: str, council_area: str | None) -> str:
     """Build a geocoding query string from location and council area."""
     loc = location.strip()
 
-    # Skip out-of-force and unknown
+    # Skip out-of-force and unknown (handle truncated "Out Of Force Are" too)
     if council_area and "out of force" in council_area.lower():
         return ""
-    if loc.lower() in ("unknown", "n/a", "none", ""):
+    if loc.lower() in ("unknown", "not known", "n/a", "none", ""):
         return ""
 
     # Skip vague motorway/A-road references without junctions
@@ -94,10 +94,21 @@ def build_query(location: str, council_area: str | None) -> str:
         return ""
 
     # Motorway junctions — various formats:
-    #   "M6 NB J6", "M6 SB J 6", "M42 J5", "M5 Jct 23", "M6 Junction 6"
-    #   "M42 near M40 junc", "M6 to M5 junction"
+    #   "M6 Northbound J6", "M42 Southbound, between Junction 7 and 6"
+    #   "M42 J5", "M5 Junction 23", "M6 Junction 6"
     m = re.match(
-        r"^(M\d+)\s*(?:NB|SB|EB|WB)?\s*(?:J|Jct|Junction|junc)\.?\s*(\d+)",
+        r"^(M\d+)\s*(?:Northbound|Southbound|Eastbound|Westbound)?\s*,?\s*"
+        r"(?:between\s+)?(?:J|Jct|Junction|junc)\.?\s*(\d+)",
+        loc,
+        re.IGNORECASE,
+    )
+    if m:
+        return f"{m.group(1)} Junction {m.group(2)}, England"
+
+    # "M42 Southbound, between Jn 7 and 6" — already expanded by ingest
+    m = re.match(
+        r"^(M\d+)\s*(?:Northbound|Southbound|Eastbound|Westbound)?\s*,?\s*"
+        r"(?:between|before|after|past|exit slip at)\s+Junction\s*(\d+)",
         loc,
         re.IGNORECASE,
     )
@@ -109,11 +120,27 @@ def build_query(location: str, council_area: str | None) -> str:
     if m:
         return f"{m.group(1)} {m.group(2)} junction, England"
 
-    # Intersection references: "Chester Road at Kingsbury Road" -> just first road
-    for separator in [" at ", " / ", " junction with ", " junc with ", " near "]:
+    # Skip remaining motorway descriptions we can't parse to a junction
+    if re.match(r"^M\d+\s", loc) and "Junction" not in loc:
+        return ""
+
+    # Intersection references — split on separators and take first road
+    for separator in [" at ", " / ", "/", " junction with ", " junc with ",
+                      " near to ", " near ", " and ", " & "]:
         if separator in loc.lower():
             idx = loc.lower().index(separator)
-            loc = loc[:idx].strip()
+            first_part = loc[:idx].strip()
+            # Only use the split if the first part looks like a road name
+            if len(first_part) > 3:
+                loc = first_part
+                break
+
+    # Strip any trailing council area that crept into the location
+    # e.g. "Alcester Road Birmingham" -> "Alcester Road"
+    for area in ["Birmingham", "Coventry", "Walsall", "Dudley",
+                 "Sandwell", "Solihull", "Wolverhampton"]:
+        if loc.endswith(f" {area}") or loc.endswith(f", {area}"):
+            loc = loc[:loc.rfind(area)].rstrip(", ")
             break
 
     # Get the search area suffix
