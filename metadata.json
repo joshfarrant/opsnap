@@ -1,0 +1,14 @@
+{
+  "title": "Op Snap — West Midlands",
+  "description": "West Midlands Police Operation Snap driving offence data",
+  "plugins": {
+    "datasette-cluster-map": {
+      "tile_layer": "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+      "tile_layer_options": {
+        "attribution": "&copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors &copy; <a href=\"https://carto.com/attributions\">CARTO</a>",
+        "subdomains": "abcd",
+        "maxZoom": 20
+      }
+    }
+  }
+}

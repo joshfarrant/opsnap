@@ -201,7 +201,7 @@ def try_table_extraction(pdf: pdfplumber.PDF) -> list[dict] | None:
 
 
 def normalise_location(raw: str | None) -> str | None:
-    """Basic normalisation of location strings."""
+    """Normalise location strings for consistency and better geocoding."""
     if not raw:
         return None
 
@@ -210,9 +210,58 @@ def normalise_location(raw: str | None) -> str | None:
     loc = re.sub(r"\.\.", "", loc)
     loc = loc.strip()
 
-    # Title-case if all lower
-    if loc == loc.lower():
+    if not loc or loc.lower() == "unknown":
+        return None
+
+    # Expand common abbreviations
+    loc = re.sub(r"\bRd\b", "Road", loc)
+    loc = re.sub(r"\bSt\b", "Street", loc)
+    loc = re.sub(r"\bLn\b", "Lane", loc)
+    loc = re.sub(r"\bAv\b", "Avenue", loc)
+    loc = re.sub(r"\bDr\b", "Drive", loc)
+    loc = re.sub(r"\bBlvd\b", "Boulevard", loc)
+    loc = re.sub(r"\bCres\b", "Crescent", loc)
+    loc = re.sub(r"\bNB\b", "Northbound", loc)
+    loc = re.sub(r"\bSB\b", "Southbound", loc)
+
+    # Normalise whitespace
+    loc = re.sub(r"\s+", " ", loc).strip()
+
+    # Strip leading A-road prefixes when followed by a road name
+    # e.g. "A38 Bristol Road" -> "Bristol Road" (the name is more geocodable)
+    loc = re.sub(r"^A\d+\s+(?=[A-Z][a-z])", "", loc)
+
+    # Title-case if all lower or all upper
+    if loc == loc.lower() or loc == loc.upper():
         loc = loc.title()
+
+    # Known corrections (from fuzzy matching analysis)
+    corrections = {
+        "Barsnley Road": "Barnsley Road",
+        "Barnslaey Road": "Barnsley Road",
+        "Barnsley Raod": "Barnsley Road",
+        "Startford Road": "Stratford Road",
+        "Stratfrod Road": "Stratford Road",
+        "Harbourne Road": "Harborne Road",
+        "Tetenhall High Street": "Tettenhall High Street",
+        "Hill Villiage Road": "Hill Village Road",
+        "Foles Hill Road": "Foleshill Road",
+        "Sherbourne Street": "Sherborne Street",
+        "Alceseter Road": "Alcester Road",
+        "Ancester Road": "Alcester Road",
+        "Aslcester Road": "Alcester Road",
+        "Bekgrave Middleway": "Belgrave Middleway",
+        "Belgrade Middleway": "Belgrave Middleway",
+        "Aston Web Boulevard": "Aston Webb Boulevard",
+        "Aston Weeb Boulevard": "Aston Webb Boulevard",
+        "Aston Webb Bouelvard": "Aston Webb Boulevard",
+        "Barclary Road": "Barclay Road",
+        "Aldrige Road": "Aldridge Road",
+        "Alridge Road": "Aldridge Road",
+        "Abey Road": "Abbey Road",
+        "Hight Street": "High Street",
+    }
+    loc = corrections.get(loc, loc)
 
     return loc if loc else None
 
