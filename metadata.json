@@ -1,6 +1,6 @@
 {
   "title": "Op Snap — West Midlands",
-  "description": "West Midlands Police Operation Snap driving offence data",
+  "description": "West Midlands Police Operation Snap driving offence data (Jan 2025 – Feb 2026)",
   "plugins": {
     "datasette-cluster-map": {
       "tile_layer": "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
@@ -8,6 +8,52 @@
         "attribution": "&copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors &copy; <a href=\"https://carto.com/attributions\">CARTO</a>",
         "subdomains": "abcd",
         "maxZoom": 20
+      }
+    }
+  },
+  "databases": {
+    "opsnap-view": {
+      "queries": {
+        "top-offence-locations": {
+          "title": "Top offence locations",
+          "description": "Streets with the most reported offences, with map",
+          "sql": "select offence_location, council_area, count(*) as total_reports, sum(case when disposal in ('Fixed Penalty', 'Court') then 1 else 0 end) as fines_or_court, sum(case when disposal = 'Education' then 1 else 0 end) as education, sum(case when disposal = 'Warning Letter' then 1 else 0 end) as warning_letters, sum(case when disposal = 'NFA' then 1 else 0 end) as nfa, round(100.0 * sum(case when disposal != 'NFA' then 1 else 0 end) / count(*), 1) as action_rate_pct from reports where offence_location is not null group by offence_location, council_area order by total_reports desc limit 50"
+        },
+        "disposal-breakdown-by-month": {
+          "title": "Disposal breakdown by month",
+          "description": "How outcomes have changed over time",
+          "sql": "select month, count(*) as total, sum(case when disposal = 'Education' then 1 else 0 end) as education, sum(case when disposal = 'Warning Letter' then 1 else 0 end) as warning_letter, sum(case when disposal = 'Fixed Penalty' then 1 else 0 end) as fixed_penalty, sum(case when disposal = 'Court' then 1 else 0 end) as court, sum(case when disposal = 'NFA' then 1 else 0 end) as nfa, round(100.0 * sum(case when disposal not in ('NFA', 'Duplicate Submission') then 1 else 0 end) / count(*), 1) as action_rate_pct from reports group by month order by month"
+        },
+        "vehicle-makes": {
+          "title": "Top vehicle makes",
+          "description": "Which vehicle makes appear most in offence reports",
+          "sql": "select vehicle_make, count(*) as total_reports, sum(case when disposal = 'Fixed Penalty' then 1 else 0 end) as fines, sum(case when disposal = 'Court' then 1 else 0 end) as court, sum(case when disposal = 'NFA' then 1 else 0 end) as nfa, round(100.0 * sum(case when disposal not in ('NFA', 'Duplicate Submission') then 1 else 0 end) / count(*), 1) as action_rate_pct from reports where vehicle_make is not null group by vehicle_make order by total_reports desc limit 30"
+        },
+        "pavement-parking-hotspots": {
+          "title": "Pavement parking hotspots",
+          "description": "Locations with the most pavement parking / obstruction offences, with map",
+          "sql": "select r.offence_location, r.council_area, count(*) as total_reports, r.latitude, r.longitude from reports r where (r.offence like '%obstruction%' or r.offence like '%dangerous position%') and r.offence_location is not null group by r.offence_location, r.council_area order by total_reports desc limit 100"
+        },
+        "offence-types": {
+          "title": "Offence type breakdown",
+          "description": "All offence types ranked by frequency",
+          "sql": "select offence, count(*) as total_reports, sum(case when disposal = 'NFA' then 1 else 0 end) as nfa, round(100.0 * sum(case when disposal not in ('NFA', 'Duplicate Submission') then 1 else 0 end) / count(*), 1) as action_rate_pct from reports where offence is not null group by offence order by total_reports desc"
+        },
+        "reporter-vs-offence": {
+          "title": "Reporter type vs offence",
+          "description": "What pedestrians, cyclists, and drivers report differently",
+          "sql": "select reporter_transport_mode, offence, count(*) as total from reports where reporter_transport_mode is not null group by reporter_transport_mode, offence order by reporter_transport_mode, total desc"
+        },
+        "council-area-comparison": {
+          "title": "Council area comparison",
+          "description": "Submissions and outcomes by council area",
+          "sql": "select council_area, count(*) as total_reports, sum(case when disposal = 'Education' then 1 else 0 end) as education, sum(case when disposal = 'Warning Letter' then 1 else 0 end) as warning_letter, sum(case when disposal = 'Fixed Penalty' then 1 else 0 end) as fixed_penalty, sum(case when disposal = 'Court' then 1 else 0 end) as court, sum(case when disposal = 'NFA' then 1 else 0 end) as nfa, round(100.0 * sum(case when disposal not in ('NFA', 'Duplicate Submission') then 1 else 0 end) / count(*), 1) as action_rate_pct from reports where council_area is not null and council_area != 'Out of Force Area' group by council_area order by total_reports desc"
+        },
+        "all-offences-map": {
+          "title": "All offences (map)",
+          "description": "Every geocoded offence on a clustered map",
+          "sql": "select offence_location, council_area, offence, disposal, vehicle_make, vehicle_model, vehicle_colour, reporter_transport_mode, month, latitude, longitude from reports where latitude is not null limit 5000"
+        }
       }
     }
   }
