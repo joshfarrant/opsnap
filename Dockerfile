@@ -9,4 +9,4 @@ COPY metadata.json .
 
 EXPOSE 8001
 
-CMD ["datasette", "data/opsnap.db", "-i", "-m", "metadata.json", "-h", "0.0.0.0", "-p", "8001", "--setting", "sql_time_limit_ms", "5000", "--cors"]
+CMD ["datasette", "-i", "data/opsnap.db", "-m", "metadata.json", "-h", "0.0.0.0", "-p", "8001", "--setting", "sql_time_limit_ms", "5000", "--cors"]
