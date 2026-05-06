@@ -27,7 +27,12 @@
         "vehicle-makes": {
           "title": "Top vehicle makes",
           "description": "Which vehicle makes appear most in offence reports",
-          "sql": "select vehicle_make, count(*) as total_reports, sum(case when disposal = 'Fixed Penalty' then 1 else 0 end) as fines, sum(case when disposal = 'Court' then 1 else 0 end) as court, sum(case when disposal = 'NFA' then 1 else 0 end) as nfa, round(100.0 * sum(case when disposal not in ('NFA', 'Duplicate Submission') then 1 else 0 end) / count(*), 1) as action_rate_pct from reports where vehicle_make is not null group by vehicle_make order by total_reports desc limit 30"
+           "sql": "select vehicle_make, count(*) as total_reports, sum(case when disposal = 'Fixed Penalty' then 1 else 0 end) as fines, sum(case when disposal = 'Court' then 1 else 0 end) as court, sum(case when disposal = 'NFA' then 1 else 0 end) as nfa, round(100.0 * sum(case when disposal not in ('NFA', 'Duplicate Submission') then 1 else 0 end) / count(*), 1) as action_rate_pct from reports where vehicle_make is not null group by vehicle_make order by total_reports desc limit 30"
+        },
+        "vehicle-makes-per-100k": {
+          "title": "Vehicle makes — offences per 100k registered",
+          "description": "Which makes are disproportionately reported, normalised against DVLA registration data",
+          "sql": "select r.vehicle_make, count(*) as offences, vr.licensed_vehicles, round(100000.0 * count(*) / vr.licensed_vehicles, 1) as offences_per_100k, round(100.0 * sum(case when r.disposal not in ('NFA', 'Duplicate Submission') then 1 else 0 end) / count(*), 1) as action_rate_pct from reports r join vehicle_registrations vr on r.vehicle_make = vr.make where r.vehicle_make is not null group by r.vehicle_make order by offences_per_100k desc"
         },
         "pavement-parking-hotspots": {
           "title": "Pavement parking hotspots",
