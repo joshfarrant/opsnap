@@ -12,7 +12,7 @@
     }
   },
   "databases": {
-    "opsnap-view": {
+        "opsnap": {
       "queries": {
         "top-offence-locations": {
           "title": "Top offence locations",
