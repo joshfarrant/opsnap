@@ -13,6 +13,9 @@
         "subdomains": "abcd",
         "maxZoom": 20
       }
+    },
+    "datasette-block-robots": {
+      "literal": "User-agent: *\nDisallow: /opsnap/reports\nCrawl-delay: 10\n"
     }
   },
   "databases": {

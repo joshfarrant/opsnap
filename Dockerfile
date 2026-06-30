@@ -2,7 +2,7 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir datasette datasette-cluster-map
+RUN pip install --no-cache-dir datasette datasette-cluster-map datasette-block-robots
 
 COPY data/opsnap-deploy.db data/opsnap.db
 COPY metadata.json .
