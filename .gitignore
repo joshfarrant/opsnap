@@ -6,3 +6,4 @@ data/opsnap.db
 data/opsnap-view.db
 data/*.db-journal
 data/opsnap-local.db
+data/backups/

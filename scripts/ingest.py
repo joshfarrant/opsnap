@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 """
-Ingest Operation Snap PDFs into SQLite.
+Ingest Operation Snap publications into SQLite.
 
-Reads all PDFs from data/pdfs/, parses them into structured records,
-and writes to data/opsnap.db. Idempotent — drops and rebuilds on each run.
+Reads all monthly publications from data/pdfs/ — PDFs and/or xlsx
+spreadsheets — parses them into structured records, and writes to
+data/opsnap.db. Idempotent — drops and rebuilds on each run.
+
+West Midlands Police published their first machine-readable xlsx for the
+March 2026 publication. Where a month is supplied as xlsx it's parsed
+directly (no table scraping); PDFs fall back to pdfplumber table extraction.
+A given month should be supplied in a single format only.
 """
 
 import re
@@ -11,12 +17,15 @@ import sqlite3
 import sys
 from pathlib import Path
 
+import openpyxl
 import pdfplumber
 
 SCRIPT_DIR = Path(__file__).parent
 PROJECT_DIR = SCRIPT_DIR.parent
-PDF_DIR = PROJECT_DIR / "data" / "pdfs"
+SOURCE_DIR = PROJECT_DIR / "data" / "pdfs"
 DB_PATH = PROJECT_DIR / "data" / "opsnap.db"
+
+SOURCE_GLOBS = ("*.pdf", "*.xlsx")
 
 # Map normalised (whitespace-collapsed, lowercased) headers to canonical names
 HEADER_MAP = {
@@ -67,6 +76,16 @@ CANONICAL_COLUMNS = [
     "nfa_rationale",
     "witness_contacted",
 ]
+
+# Minimum columns a source must expose to be treated as a valid data table
+REQUIRED_COLUMNS = {
+    "reporter_transport_mode",
+    "vehicle_make",
+    "offence",
+    "offence_location",
+    "council_area",
+    "disposal",
+}
 
 
 def normalise_header(raw: str) -> str | None:
@@ -135,7 +154,7 @@ def extract_month_year(filename: str) -> str:
         "november": "11",
         "december": "12",
     }
-    name = filename.lower().replace(".pdf", "")
+    name = Path(filename).stem.lower()
     for month_name, month_num in months.items():
         if month_name in name:
             year_match = re.search(r"(\d{4})", name)
@@ -168,15 +187,7 @@ def try_table_extraction(pdf: pdfplumber.PDF) -> list[dict] | None:
 
     # Need at least the core columns
     mapped = set(header_map.values())
-    required = {
-        "reporter_transport_mode",
-        "vehicle_make",
-        "offence",
-        "offence_location",
-        "council_area",
-        "disposal",
-    }
-    if not required.issubset(mapped):
+    if not REQUIRED_COLUMNS.issubset(mapped):
         return None
 
     # Extract all rows from all pages
@@ -198,6 +209,76 @@ def try_table_extraction(pdf: pdfplumber.PDF) -> list[dict] | None:
                 rows.append(record)
 
     return rows
+
+
+def parse_pdf(path: Path) -> list[dict] | None:
+    """Parse a monthly publication PDF into raw (un-normalised) record dicts."""
+    with pdfplumber.open(path) as pdf:
+        return try_table_extraction(pdf)
+
+
+def parse_xlsx(path: Path) -> list[dict] | None:
+    """
+    Parse a monthly publication xlsx into raw (un-normalised) record dicts.
+
+    West Midlands Police's xlsx layout (first published March 2026) has a
+    title row, a blank row, then a header row (offset by a blank leading
+    column), followed by data rows and a long tail of empty rows. We locate
+    the header row by content, then read until the data runs out.
+    """
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    ws = wb.active
+
+    header_map: dict[int, str] | None = None
+    rows: list[dict] = []
+
+    for cells in ws.iter_rows(values_only=True):
+        if header_map is None:
+            candidate = {}
+            for i, cell in enumerate(cells):
+                if cell is None:
+                    continue
+                canonical = normalise_header(str(cell))
+                if canonical:
+                    candidate[i] = canonical
+            if REQUIRED_COLUMNS.issubset(set(candidate.values())):
+                header_map = candidate
+            continue
+
+        record = {col: None for col in CANONICAL_COLUMNS}
+        is_empty = True
+        for i, canonical in header_map.items():
+            if i < len(cells) and cells[i] is not None:
+                val = str(cells[i]).strip()
+                if val:
+                    record[canonical] = val
+                    is_empty = False
+        if not is_empty:
+            rows.append(record)
+
+    wb.close()
+
+    if header_map is None:
+        return None
+    return rows
+
+
+PARSERS = {".pdf": parse_pdf, ".xlsx": parse_xlsx}
+
+
+def normalise_record(row: dict) -> dict:
+    """Apply field normalisation to a raw record in place; returns the record.
+
+    Shared by the ingestion pipeline and the format-comparison harness so both
+    formats get byte-for-byte identical treatment.
+    """
+    row["offence_location_raw"] = row.get("offence_location")
+    row["offence_location"] = normalise_location(row.get("offence_location"))
+    row["council_area_raw"] = row.get("council_area")
+    row["council_area"] = normalise_council_area(row.get("council_area"))
+    row["disposal"] = normalise_disposal(row.get("disposal"))
+    row["vehicle_make"] = normalise_vehicle_make(row.get("vehicle_make"))
+    return row
 
 
 def normalise_location(raw: str | None) -> str | None:
@@ -420,25 +501,29 @@ def create_database(db_path: Path, records: list[dict]):
 
 def ingest():
     """Main ingestion pipeline."""
-    pdf_files = sorted(PDF_DIR.glob("*.pdf"))
-    if not pdf_files:
-        print(f"No PDFs found in {PDF_DIR}")
+    source_files = sorted(
+        p for glob in SOURCE_GLOBS for p in SOURCE_DIR.glob(glob)
+    )
+    if not source_files:
+        print(f"No publications found in {SOURCE_DIR}")
         sys.exit(1)
 
-    print(f"Found {len(pdf_files)} PDFs in {PDF_DIR}")
+    print(f"Found {len(source_files)} publications in {SOURCE_DIR}")
 
     all_records = []
 
-    for pdf_path in pdf_files:
-        filename = pdf_path.name
+    for source_path in source_files:
+        filename = source_path.name
         month_year = extract_month_year(filename)
 
-        pdf = pdfplumber.open(pdf_path)
+        parser = PARSERS.get(source_path.suffix.lower())
+        if parser is None:
+            print(f"  {filename}: SKIPPED (unsupported file type)")
+            continue
 
-        rows = try_table_extraction(pdf)
+        rows = parser(source_path)
         if rows is None:
             print(f"  {filename}: SKIPPED (unsupported format)")
-            pdf.close()
             continue
 
         # Add metadata and normalise
@@ -447,17 +532,10 @@ def ingest():
             row["source_page"] = None
             row["source_row"] = i
             row["month"] = month_year
-            row["offence_location_raw"] = row.get("offence_location")
-            row["offence_location"] = normalise_location(row.get("offence_location"))
-            row["council_area_raw"] = row.get("council_area")
-            row["council_area"] = normalise_council_area(row.get("council_area"))
-            row["disposal"] = normalise_disposal(row.get("disposal"))
-            row["vehicle_make"] = normalise_vehicle_make(row.get("vehicle_make"))
+            normalise_record(row)
 
         all_records.extend(rows)
         print(f"  {filename}: {len(rows)} rows")
-
-        pdf.close()
 
     print(f"\nTotal records: {len(all_records)}")
 

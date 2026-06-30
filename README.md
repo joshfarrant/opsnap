@@ -9,26 +9,37 @@ Operation Snap lets the public submit dashcam and photo evidence of driving offe
 ## What's here
 
 ```
-data/pdfs/              Monthly PDFs from WM Police (Jan 2025 – Feb 2026)
+data/pdfs/              Monthly publications from WM Police — PDFs (Jan 2025–) and xlsx (Mar 2026–)
 data/opsnap-deploy.db   Pre-built SQLite database with geocoded data (used by Docker)
-scripts/ingest.py       Parse PDFs → SQLite
+scripts/ingest.py       Parse PDFs and xlsx → SQLite
 scripts/geocode.py      Geocode locations via Nominatim → lat/lng
+scripts/build_deploy.py Build opsnap-deploy.db from the view DB (WM bounding-box filter)
+scripts/compare_sources.py  Compare a PDF vs xlsx publication for the same month
 scripts/clear_failed_geocodes.py  Clear failed cache entries for retry
 metadata.json           Datasette config with canned queries and UI settings
 Dockerfile              Production deployment
 ```
 
+> West Midlands Police published their first machine-readable **xlsx** for the
+> March 2026 publication, after three years of PDF-only releases. `ingest.py`
+> handles both: drop whichever single format WMP provide for a month into
+> `data/pdfs/`. A side-by-side parse of the March 2026 PDF and xlsx agreed on
+> 2,252/2,252 rows after normalisation (`scripts/compare_sources.py`).
+
 ## Quick start
 
 ```bash
 # Install dependencies
-pip install pdfplumber
+pip install pdfplumber openpyxl
 
-# Ingest PDFs into SQLite
+# Ingest publications (PDF and/or xlsx) into SQLite
 python scripts/ingest.py
 
-# Geocode locations (~3 hours first run, cached and resumable)
+# Geocode locations (cached and resumable; only new locations hit Nominatim)
 python scripts/geocode.py
+
+# Build the deployable DB (copies view DB, clears out-of-area geocodes)
+python scripts/build_deploy.py
 
 # Browse with Datasette
 pip install datasette datasette-cluster-map
@@ -37,7 +48,7 @@ datasette -i data/opsnap.db -m metadata.json
 
 ## Data
 
-~25,600 records across 14 months (Jan 2025 – Feb 2026). 79% geocoded onto a map.
+~27,900 records across 15 months (Jan 2025 – Mar 2026). 78% geocoded onto a map.
 
 | Field | Example |
 |-------|---------|
@@ -52,10 +63,10 @@ Vehicle registration data (DVLA, Q3 2025) is included for normalising offence ra
 
 ## Key stats
 
-- **71%** of submissions result in action (education, warning, fine, or court)
-- **Washwood Heath Road** is the most-reported location (923 reports in 14 months)
-- **Seat** has the highest offence rate per 100k registered vehicles (122.8), followed by Mercedes-Benz (108.3) and Toyota (102.6)
-- **Ford** leads raw counts but drops to 10th when normalised against registrations
+- **65%** of submissions result in action (education, warning, fine, or court)
+- **Washwood Heath Road** is the most-reported location (1,036 reports in 15 months)
+- **Seat** has the highest offence rate per 100k registered vehicles (136.3), followed by Mercedes-Benz (119.2) and Toyota (111.5)
+- **Ford** leads raw counts but drops to 9th when normalised against registrations
 
 ## Queries
 
